@@ -7,7 +7,9 @@ from __future__ import annotations
 import argparse
 import sys
 
-from .analysis import analyze_signal, detect_anomalies
+import json
+
+from .analysis import analyze_signal, detect_anomalies, compute_summary
 from .generator import generate_log_lines, generate_json_log_lines
 from .parser import LogParser
 from .signal import events_to_signals, group_by_level, group_by_source, group_all
@@ -17,6 +19,7 @@ from .visualize import (
     render_spectrum,
     render_waveform,
     render_anomaly_timeline,
+    render_summary_stats,
 )
 
 
@@ -54,15 +57,51 @@ def cmd_analyze(args: argparse.Namespace) -> None:
 
     width = args.width
 
+    window_name = getattr(args, "window", "hamming")
+    compute_ci = getattr(args, "confidence", False)
+    export_path = getattr(args, "export", None)
+    show_summary = getattr(args, "summary", False)
+
+    export_records = []
+
     for signal in signals:
-        result = analyze_signal(signal, max_peaks=args.peaks)
+        result = analyze_signal(
+            signal, max_peaks=args.peaks,
+            window_name=window_name,
+            compute_confidence=compute_ci,
+            detect_harmonics=True,
+        )
         anomalies = detect_anomalies(signal, threshold=args.threshold)
         print()
         print(render_full_report(signal, result, anomalies, width=width))
+        if show_summary:
+            summary = compute_summary(signal)
+            print()
+            print(render_summary_stats(summary))
         if args.spectrogram:
             print()
             print(render_spectrogram(signal, width=width))
         print()
+
+        if export_path:
+            record = result.to_dict()
+            record["anomalies"] = [
+                {
+                    "window_start": a.window_start,
+                    "window_end": a.window_end,
+                    "energy_ratio": a.energy_ratio,
+                    "z_score": a.z_score,
+                    "severity": a.severity,
+                    "description": a.description,
+                }
+                for a in anomalies
+            ]
+            export_records.append(record)
+
+    if export_path:
+        with open(export_path, "w") as fh:
+            json.dump(export_records, fh, indent=2)
+        print(f"Exported analysis to {export_path}", file=sys.stderr)
 
 
 def cmd_demo(args: argparse.Namespace) -> None:
@@ -91,10 +130,13 @@ def cmd_demo(args: argparse.Namespace) -> None:
     width = args.width
 
     for signal in signals:
-        result = analyze_signal(signal, max_peaks=8)
+        result = analyze_signal(signal, max_peaks=8, window_name="hamming")
         anomalies = detect_anomalies(signal, threshold=2.5)
         print()
         print(render_full_report(signal, result, anomalies, width=width))
+        summary = compute_summary(signal)
+        print()
+        print(render_summary_stats(summary))
         print()
 
 
@@ -141,6 +183,15 @@ def main(argv: list[str] | None = None) -> None:
                            help="Display width in characters")
     p_analyze.add_argument("--spectrogram", action="store_true",
                            help="Also show spectrogram")
+    p_analyze.add_argument("--window", default="hamming",
+                           choices=["hamming", "hanning", "blackman", "rectangular"],
+                           help="Window function for FFT (default: hamming)")
+    p_analyze.add_argument("--export", type=str, default=None, metavar="FILE",
+                           help="Export full analysis as JSON to file")
+    p_analyze.add_argument("--confidence", action="store_true",
+                           help="Compute bootstrap confidence intervals for peaks")
+    p_analyze.add_argument("--summary", action="store_true",
+                           help="Show summary statistics")
     p_analyze.set_defaults(func=cmd_analyze)
 
     # demo

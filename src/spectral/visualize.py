@@ -13,7 +13,7 @@ from __future__ import annotations
 import math
 from datetime import datetime, timezone
 
-from .analysis import Anomaly, SpectralResult
+from .analysis import Anomaly, SpectralResult, SignalSummary
 from .signal import Signal
 
 # Unicode block characters for vertical bar charts (⅛ increments)
@@ -307,6 +307,23 @@ def render_anomaly_timeline(
         t = _format_time(a.window_start)
         lines.append(f"  [{a.severity:>8}] {t} - {a.description}")
 
+    return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
+# Summary statistics
+# ---------------------------------------------------------------------------
+
+def render_summary_stats(summary: SignalSummary) -> str:
+    """Render summary statistics for a signal."""
+    lines = []
+    lines.append("  Summary Statistics:")
+    lines.append(f"    Total events:    {summary.total_events:,}")
+    lines.append(f"    Time span:       {_format_duration(summary.time_span_seconds)}")
+    lines.append(f"    Bucket size:     {_format_duration(summary.bucket_size)}")
+    lines.append(f"    Mean rate:       {summary.mean_rate:.2f}/s")
+    lines.append(f"    Peak rate:       {summary.peak_rate:.2f}/s")
+    lines.append(f"    Quietest rate:   {summary.quietest_rate:.2f}/s")
     return "\n".join(lines)
 
 
